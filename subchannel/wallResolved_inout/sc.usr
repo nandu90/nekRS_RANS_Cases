@@ -1,0 +1,269 @@
+C
+C  USER SPECIFIED ROUTINES: 
+C
+C     - boundary conditions 
+C     - initial conditions  
+C     - variable properties 
+C     - forcing function for fluid (f)
+C     - forcing function for passive scalar (q)
+C     - general purpose routine for checking errors etc.        
+C
+c-----------------------------------------------------------------------
+      include "/home/nsaini/Nek5000/core/experimental/limits.f"
+      include "/home/nsaini/Nek5000/core/experimental/utilities.f"
+      include "/home/nsaini/Nek5000/core/experimental/lineplot.f"      
+      include "/home/nsaini/Nek5000/core/experimental/portion_post.f"
+c---------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      real kmax
+      
+      ux   = 0.0  
+      uy   = 0.0 
+      uz   = 0.0
+            
+      if (ifield.eq.2) then
+         temp = 0.01
+      elseif (ifield.eq.3) then
+         temp = 0.0001
+      elseif (ifield.eq.4) then
+         temp = 0.0001
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'
+      include 'TOTAL'
+      
+      integer elist
+      common /imy_fld/ elist(lelv)
+      
+      real wd
+      common /walldist/ wd(lx1,ly1,lz1,lelv)
+      
+      real nrsdt(1)
+      save nrsdt
+
+      common /NRSSCPTR/ nrs_scptr(10)
+      integer*8 nrs_scptr
+
+      real uin,vin,win,tin
+      common /inarrs/ 
+     $     uin(lx1*ly1*lz1*lelv),
+     $     vin(lx1*ly1*lz1*lelv),
+     $     win(lx1*ly1*lz1*lelv),
+     $     t1in(lx1*ly1*lz1*lelv),
+     $     t2in(lx1*ly1*lz1*lelv),
+     $     t3in(lx1*ly1*lz1*lelv)
+     
+      nxyz = lx1*ly1*lz1
+      ntot = nxyz*nelv
+      ntott = ntot*ldimt
+
+c     Fix needed for a lack of a pointer to dt from nekRS
+      nrs_scptr(1) = loc(nrsdt(1))
+      dt = nrsdt(1)
+
+      if(istep.eq.0)then
+         call gfldr('sc.bare')
+         call copy(uin,vx,ntot)
+         call copy(vin,vy,ntot)
+         call copy(win,vz,ntot)
+         call copy(t1in,t(1,1,1,1,1),ntot)
+         call copy(t2in,t(1,1,1,1,2),ntot)
+         call copy(t3in,t(1,1,1,1,3),ntot)
+      endif
+      nrs_scptr(2) = loc(uin(1))
+      nrs_scptr(3) = loc(vin(1))
+      nrs_scptr(4) = loc(win(1))
+      nrs_scptr(5) = loc(t1in(1))
+      nrs_scptr(6) = loc(t2in(1))
+      nrs_scptr(7) = loc(t3in(1))
+      
+      if(istep.eq.0)then
+         call izero(elist,nelv)
+         xmax = glmax(xm1,ntot)
+         zmax = glmax(zm1,ntot)
+         xmax = xmax/2.0
+         zmax = zmax/2.0
+         do ie = 1,nelv
+            xmaxl = vlmax(xm1(1,1,1,ie),nxyz)
+            zmaxl = vlmax(zm1(1,1,1,ie),nxyz)
+            if(xmaxl .le. xmax .and. zmaxl .le. zmax)elist(ie) = 1
+         enddo
+      endif
+      
+      if(istep.gt.0)then
+         call my_outpost(elist,vx,vy,vz,pr,t,'partsc')
+      endif
+
+      if(istep.eq.0)then
+c     Fix for vtrans and vdiff not being populated
+c     Needed for y_p_limits
+         Re=1./param(2)
+         visc = 1./Re
+         rho = 1.0
+         call rone(vtrans(1,1,1,1,1),ntot)
+         call rone(vdiff(1,1,1,1,1),ntot)
+         call cmult(vdiff(1,1,1,1,1),visc,ntot)
+      endif
+      if(istep.gt.0)then
+         call print_limits
+         call y_p_limits(wd,.true.)
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat   ! This routine to modify element vertices
+      include 'SIZE'      ! _before_ mesh is generated, which 
+      include 'TOTAL'     ! guarantees GLL mapping of mesh.
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2()  ! This routine to modify mesh coordinates
+      include 'SIZE'
+      include 'TOTAL'
+
+      real wd
+      common /walldist/ wd(lx1,ly1,lz1,lelv)
+
+      real w1,w2,w3,w4,w5
+      common /SCRNS/
+     $     w1(lx1,ly1,lz1,lelv),
+     $     w2(lx1,ly1,lz1,lelv),
+     $     w3(lx1,ly1,lz1,lelv),
+     $     w4(lx1,ly1,lz1,lelv),
+     $     w5(lx1,ly1,lz1,lelv)
+
+      n=nx1*ny1*nz1*nelv
+
+      do i=1,n
+      xm1(i,1,1,1) = xm1(i,1,1,1)/0.009775
+      ym1(i,1,1,1) = ym1(i,1,1,1)/0.009775
+      zm1(i,1,1,1) = zm1(i,1,1,1)/0.009775
+      enddo
+
+      xmin = glmin(xm1,n)
+      zmin = glmin(zm1,n)
+      ymin = glmin(ym1,n)
+      
+      do i=1,n
+         xm1(i,1,1,1) = xm1(i,1,1,1)-xmin
+         zm1(i,1,1,1) = zm1(i,1,1,1)-zmin
+         ym1(i,1,1,1) = ym1(i,1,1,1)-ymin
+      enddo
+
+      xmax = glmax(xm1,n)
+      zmax = glmax(zm1,n)
+      
+      xzlim = 2.57755
+
+      xfac = xmax/xzlim
+      zfac = zmax/xzlim
+
+      do i=1,n
+         xm1(i,1,1,1) = xm1(i,1,1,1)/xfac
+         zm1(i,1,1,1) = zm1(i,1,1,1)/zfac
+      enddo
+      
+      do iel=1,nelt
+         do ifc=1,2*ndim
+            id_face = bc(5,ifc,iel,1)
+            if (id_face.eq.2) then
+               cbc(ifc,iel,1) = 'P  '
+               cbc(ifc,iel,2) = 'P  '
+               cbc(ifc,iel,3) = 'P  '
+               cbc(ifc,iel,4) = 'P  '
+            elseif (id_face.eq.3) then
+               cbc(ifc,iel,1) = 'P  '
+               cbc(ifc,iel,2) = 'P  '
+               cbc(ifc,iel,3) = 'P  '
+               cbc(ifc,iel,4) = 'P  '
+            elseif (id_face.eq.4) then
+               cbc(ifc,iel,1) = 'P  '
+               cbc(ifc,iel,2) = 'P  '
+               cbc(ifc,iel,3) = 'P  '
+               cbc(ifc,iel,4) = 'P  '
+            elseif (id_face.eq.5) then
+               cbc(ifc,iel,1) = 'P  '
+               cbc(ifc,iel,2) = 'P  '
+               cbc(ifc,iel,3) = 'P  '
+               cbc(ifc,iel,4) = 'P  '
+            elseif (id_face.eq.6) then
+               cbc(ifc,iel,1) = 'P  '
+               cbc(ifc,iel,2) = 'P  '
+               cbc(ifc,iel,3) = 'P  '
+               cbc(ifc,iel,4) = 'P  '
+            elseif (id_face.eq.7) then
+               cbc(ifc,iel,1) = 'P  '
+               cbc(ifc,iel,2) = 'P  '
+               cbc(ifc,iel,3) = 'P  '
+               cbc(ifc,iel,4) = 'P  '
+            elseif (id_face.eq.8) then
+               cbc(ifc,iel,1) = 'P  '
+               cbc(ifc,iel,2) = 'P  '
+               cbc(ifc,iel,3) = 'P  '
+               cbc(ifc,iel,4) = 'P  '
+            elseif (id_face.eq.9) then
+               cbc(ifc,iel,1) = 'P  '
+               cbc(ifc,iel,2) = 'P  '
+               cbc(ifc,iel,3) = 'P  '
+               cbc(ifc,iel,4) = 'P  '
+            elseif(id_face.eq.10) then
+               cbc(ifc,iel,1) = 'W  '
+               cbc(ifc,iel,2) = 't  '
+               cbc(ifc,iel,3) = 't  '
+               cbc(ifc,iel,4) = 't  '
+            elseif (id_face.eq.11) then
+               cbc(ifc,iel,1) = 'W  '
+               cbc(ifc,iel,2) = 't  '
+               cbc(ifc,iel,3) = 't  '
+               cbc(ifc,iel,4) = 't  '
+            elseif (id_face.eq.12) then
+               cbc(ifc,iel,1) = 'O  '
+               cbc(ifc,iel,2) = 'O  '
+               cbc(ifc,iel,3) = 'O  '
+               cbc(ifc,iel,4) = 'O  '
+            elseif (id_face.eq.13) then
+               cbc(ifc,iel,1) = 'v  '
+               cbc(ifc,iel,2) = 't  '
+               cbc(ifc,iel,3) = 't  '
+               cbc(ifc,iel,4) = 't  '
+            endif
+            boundaryID(ifc,iel) = 0
+            boundaryIDt(ifc,iel) = 0
+            
+            if(cbc(ifc,iel,3).eq.'t  ')then
+               if(cbc(ifc,iel,1).eq.'v') boundaryIDt(ifc,iel)=1
+               if(cbc(ifc,iel,1).eq.'W') boundaryIDt(ifc,iel)=2
+            elseif(cbc(ifc,iel,3).eq.'O  ')then
+               boundaryIDt(ifc,iel)=3
+            endif
+            
+            if(cbc(ifc,iel,1).eq.'v ')boundaryID(ifc,iel)=1
+            if(cbc(ifc,iel,1).eq.'W ')boundaryID(ifc,iel)=2
+            if(cbc(ifc,iel,1).eq.'O ')boundaryID(ifc,iel)=3
+         enddo
+      enddo
+
+c     Calculate wall distance
+      ifld = 1
+      call distf(wd,ifld,'W  ',w1,w2,w3,w4,w5)
+c      call outpost2(vx,vy,vz,wd,t,3,'ywd')
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      include 'SIZE'
+      include 'TOTAL'
+
+      return
+      end
+c-----------------------------------------------------------------------

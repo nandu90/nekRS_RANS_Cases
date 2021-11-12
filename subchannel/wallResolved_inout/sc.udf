@@ -1,0 +1,103 @@
+//
+// nekRS User Defined File
+//
+#include <math.h>
+#include "udf.hpp"
+#include "plugins/RANSktau.hpp"
+
+/* User Functions */
+
+static dfloat rho, mueLam;
+occa::kernel userfKernel; 
+static occa::kernel scalarScaledAddKernel;
+
+void userf(nrs_t *nrs, dfloat time, occa::memory o_U, occa::memory o_FU)
+{
+  mesh_t* mesh = nrs->meshV;
+  //const dfloat Re_tau = 2000.0; 
+  //const dfloat Re_b   = rho/mueLam; 
+  //const dfloat DPDX   = (Re_tau/Re_b)*(Re_tau/Re_b);
+  userfKernel(mesh->Nlocal, 0*nrs->fieldOffset, 0.0, o_FU);
+}
+
+void userq(nrs_t *nrs, dfloat time, occa::memory o_S, occa::memory o_FS)
+{
+  mesh_t *mesh = nrs->meshV;
+  cds_t *cds   = nrs->cds;
+
+  RANSktau::updateSourceTerms();
+}
+
+void uservp(nrs_t *nrs, dfloat time, occa::memory o_U, occa::memory o_S,
+            occa::memory o_UProp, occa::memory o_SProp)
+{
+  mesh_t *mesh = nrs->meshV;
+  cds_t *cds   = nrs->cds;
+
+  RANSktau::updateProperties();
+
+  dfloat conductivity;
+  platform->options.getArgs("SCALAR00 DIFFUSIVITY", conductivity);
+  const dfloat Pr_t = 1.0;
+  occa::memory o_mue_t = RANSktau::o_mue_t();
+  occa::memory o_temp_mue = cds->o_diff + 0*cds->fieldOffset[0]*sizeof(dfloat);
+  scalarScaledAddKernel(mesh->Nlocal, conductivity, 1/Pr_t, o_mue_t, o_temp_mue);
+}
+
+void UDF_LoadKernels(occa::properties& kernelInfo)
+{
+  userfKernel = udfBuildKernel(kernelInfo, "cfill");
+  scalarScaledAddKernel = udfBuildKernel(kernelInfo, "scalarScaledAdd");
+  RANSktau::buildKernel(kernelInfo);
+}
+
+void UDF_Setup(nrs_t *nrs)
+{
+  platform_t* platform = platform_t::getInstance();
+  mesh_t *mesh = nrs->meshV;
+  cds_t *cds = nrs->cds;
+
+  udf.properties = &uservp;
+  udf.uEqnSource = &userf;
+  udf.sEqnSource = &userq;
+  
+  const int scalarFieldStart = 1;
+  platform->options.getArgs("VISCOSITY", mueLam); 
+  platform->options.getArgs("DENSITY", rho); 
+  RANSktau::setup(nrs, mueLam, rho, scalarFieldStart);
+
+  //copy inlet conditions
+  nrs->o_usrwrk = platform->device.malloc((nrs->NVfields+cds->NSfields)*nrs->fieldOffset,sizeof(dfloat));
+  double *uin = (double *) nek::scPtr(2);
+  double *vin = (double *) nek::scPtr(3);
+  double *win = (double *) nek::scPtr(4);
+  double *t1in = (double *) nek::scPtr(5);
+  double *t2in = (double *) nek::scPtr(6);
+  double *t3in = (double *) nek::scPtr(7);
+  
+  nrs->o_usrwrk.copyFrom(uin,mesh->Nlocal*sizeof(dfloat),0*nrs->fieldOffset*sizeof(dfloat));
+  nrs->o_usrwrk.copyFrom(vin,mesh->Nlocal*sizeof(dfloat),1*nrs->fieldOffset*sizeof(dfloat));
+  nrs->o_usrwrk.copyFrom(win,mesh->Nlocal*sizeof(dfloat),2*nrs->fieldOffset*sizeof(dfloat));
+  nrs->o_usrwrk.copyFrom(t1in,mesh->Nlocal*sizeof(dfloat),3*nrs->fieldOffset*sizeof(dfloat));
+  nrs->o_usrwrk.copyFrom(t2in,mesh->Nlocal*sizeof(dfloat),4*nrs->fieldOffset*sizeof(dfloat));
+  nrs->o_usrwrk.copyFrom(t3in,mesh->Nlocal*sizeof(dfloat),5*nrs->fieldOffset*sizeof(dfloat));
+}
+
+void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
+{
+  mesh_t *mesh = nrs->meshV;
+  cds_t *cds = nrs->cds;
+
+  if(nrs->isOutputStep){
+    nek::ocopyToNek(time, tstep);
+    
+    //pass istep to nek
+    *nekData.istep = tstep;
+
+    //pass dt to nek
+    double *ptrdt = (double*) nek::scPtr(1);
+    *ptrdt = nrs->dt[0];
+    
+    nek::userchk();
+  }
+}

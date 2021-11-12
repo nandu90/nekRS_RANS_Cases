@@ -1,0 +1,51 @@
+@kernel void cfill(const dlong Ntotal,
+                    const dlong offset,
+                    const dfloat CONST,
+                    @restrict dfloat * NU) 
+{
+  for(dlong n=0;n<Ntotal;++n;@tile(p_blockSize,@outer,@inner)){
+    if(n<Ntotal){
+      const dlong id = n + offset;
+      NU[id] = CONST;
+    }
+  }
+}
+@kernel void scalarScaledAdd(const dlong N,
+                             const dfloat a,
+                             const dfloat b,
+                             @restrict const dfloat* X,
+                             @restrict dfloat* Y)
+{
+  for(dlong n = 0; n < N; ++n; @tile(256,@outer,@inner))
+    if(n < N)
+      Y[n] = a + b * X[n];
+}
+
+void scalarDirichletConditions(bcData *bc)
+{
+  if(bc->id == 1){
+    if(bc->scalarId == 0){
+      bc->s = bc->wrk[bc->idM + 3*bc->fieldOffset];
+    }
+    else if(bc->scalarId == 1){
+      bc->s = bc->wrk[bc->idM + 4*bc->fieldOffset];
+    }
+    else if(bc->scalarId == 2){
+      bc->s = bc->wrk[bc->idM + 5*bc->fieldOffset];
+    }
+  }
+  if(bc->id == 2)bc->s = 0.0;
+}
+
+void scalarNeumannConditions(bcData *bc)
+{
+  bc->flux = 0.0;
+}
+void velocityDirichletConditions(bcData *bc)
+{
+  //To allow copy of gfldr from another
+  //mesh on the inlet
+  bc->u = bc->wrk[bc->idM + 0*bc->fieldOffset];
+  bc->v = bc->wrk[bc->idM + 1*bc->fieldOffset];
+  bc->w = bc->wrk[bc->idM + 2*bc->fieldOffset];
+}
