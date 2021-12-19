@@ -50,10 +50,15 @@ void velocityDirichletConditions(bcData *bc)
   bc->w = bc->wrk[bc->idM + 2*bc->fieldOffset];
 }
 
-void pressureDirichletConditions(bcData *bc)
+@kernel void outflow(const dlong Ntotal,
+		     @restrict const dfloat *d,
+		     const dfloat cs,
+		     @restrict dfloat *div)
 {
-  const dfloat iU0delta = 1;
-  const dfloat un = bc->u*bc->nx + bc->v*bc->ny + bc->w*bc->nz;
-  const dfloat s0 = 0.5 * (1.0 - tanh(un*iU0delta));
-  bc->p = -0.5 * (bc->u*bc->u + bc->v*bc->v + bc->w*bc->w) * s0;
+  for(dlong n=0;n<Ntotal;++n;@tile(p_blockSize,@outer,@inner)){
+    if(n<Ntotal){
+      const dlong id = n;
+      div[id] = cs*d[id]*d[id];
+    }
+  }
 }

@@ -4,12 +4,24 @@
 #include <math.h>
 #include "udf.hpp"
 #include "plugins/RANSktau.hpp"
+#include "linAlg.hpp"
 
 /* User Functions */
 
 static dfloat rho, mueLam;
 occa::kernel userfKernel; 
 static occa::kernel scalarScaledAddKernel;
+
+//For outflow
+static occa::memory o_d;
+static occa::memory o_m1;
+static double *rq,*uin,*ddmax;
+static occa::kernel outflowKernel;
+static occa::memory o_u;
+static occa::memory o_v;
+static occa::memory o_w;
+
+void turb_outflow(nrs_t *nrs);
 
 void userf(nrs_t *nrs, dfloat time, occa::memory o_U, occa::memory o_FU)
 {
@@ -49,6 +61,8 @@ void UDF_LoadKernels(occa::properties& kernelInfo)
   userfKernel = udfBuildKernel(kernelInfo, "cfill");
   scalarScaledAddKernel = udfBuildKernel(kernelInfo, "scalarScaledAdd");
   RANSktau::buildKernel(kernelInfo);
+
+  outflowKernel = udfBuildKernel(kernelInfo, "outflow");
 }
 
 void UDF_Setup(nrs_t *nrs)
@@ -81,12 +95,31 @@ void UDF_Setup(nrs_t *nrs)
   nrs->o_usrwrk.copyFrom(t1in,mesh->Nlocal*sizeof(dfloat),3*nrs->fieldOffset*sizeof(dfloat));
   nrs->o_usrwrk.copyFrom(t2in,mesh->Nlocal*sizeof(dfloat),4*nrs->fieldOffset*sizeof(dfloat));
   nrs->o_usrwrk.copyFrom(t3in,mesh->Nlocal*sizeof(dfloat),5*nrs->fieldOffset*sizeof(dfloat));
+  
+  //Outflow relevant
+  o_d = platform->device.malloc(nrs->fieldOffset,sizeof(dfloat));
+  o_m1 = platform->device.malloc(nrs->fieldOffset,sizeof(dfloat));
+  double *d = (double *) nek::scPtr(8);
+  double *m1 = (double *) nek::scPtr(9);
+  o_d.copyFrom(d,mesh->Nlocal*sizeof(dfloat),0);
+  o_m1.copyFrom(m1,mesh->Nlocal*sizeof(dfloat),0);
+  
+  rq = (double *) nek::scPtr(10);
+  uin = (double *) nek::scPtr(11);
+  ddmax = (double *) nek::scPtr(12);
+
+  o_u = platform->device.malloc(nrs->fieldOffset,sizeof(dfloat));
+  o_v = platform->device.malloc(nrs->fieldOffset,sizeof(dfloat));
+  o_w = platform->device.malloc(nrs->fieldOffset,sizeof(dfloat));
 }
 
 void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
 {
   mesh_t *mesh = nrs->meshV;
   cds_t *cds = nrs->cds;
+
+  //Add Divergence at outlet
+  turb_outflow(nrs);
 
   if(nrs->isOutputStep){
     nek::ocopyToNek(time, tstep);
@@ -100,4 +133,51 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
     
     nek::userchk();
   }
+}
+
+void turb_outflow(nrs_t *nrs)
+{
+  mesh_t *mesh = nrs->meshV;
+  cds_t *cds = nrs->cds;
+
+  //Copy velocities
+  o_u.copyFrom(nrs->o_U,mesh->Nlocal*sizeof(dfloat),0*nrs->fieldOffset*sizeof(dfloat));
+  o_v.copyFrom(nrs->o_U,mesh->Nlocal*sizeof(dfloat),1*nrs->fieldOffset*sizeof(dfloat));
+  o_w.copyFrom(nrs->o_U,mesh->Nlocal*sizeof(dfloat),2*nrs->fieldOffset*sizeof(dfloat));
+
+  dfloat ubar;
+  if(abs(uin[0])>1e-8){
+    ubar = uin[0];  //user supplied characteristic velocity
+  } 
+  else{
+    ubar = platform->linAlg->weightedInnerProd(mesh->Nlocal,
+					       o_u,
+					       mesh->o_LMM,
+					       o_m1,
+					       platform->comm.mpiComm);
+    dfloat vbar = platform->linAlg->weightedInnerProd(mesh->Nlocal,
+					       o_v,
+					       mesh->o_LMM,
+					       o_m1,
+					       platform->comm.mpiComm);
+    dfloat wbar = platform->linAlg->weightedInnerProd(mesh->Nlocal,
+					       o_w,
+					       mesh->o_LMM,
+					       o_m1,
+					       platform->comm.mpiComm);
+    dfloat volu = platform->linAlg->innerProd(mesh->Nlocal,
+					      mesh->o_LMM,
+					      o_m1,
+					      platform->comm.mpiComm,
+					      0);
+    ubar = abs(ubar)+abs(vbar)+abs(wbar);
+    ubar = ubar/volu;
+  }
+  dfloat cs = 3.0*(rq[0]-1.0)*(ubar/ddmax[0]);
+  cs = cs*nrs->coeffBDF[0]/nrs->dt[0];
+
+  outflowKernel(mesh->Nlocal,
+		o_d,
+		cs,
+		nrs->o_div);
 }

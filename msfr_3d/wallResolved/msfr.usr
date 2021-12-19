@@ -9,10 +9,10 @@ C     - forcing function for passive scalar (q)
 C     - general purpose routine for checking errors etc.        
 C
 c-----------------------------------------------------------------------
-      include "/ccs/home/nsaini/Nek5000/core/experimental/limits.f"
-      include "/ccs/home/nsaini/Nek5000/core/experimental/utilities.f"
-      include "/ccs/home/nsaini/Nek5000/core/experimental/lineplot.f"      
-      include'/ccs/home/nsaini/Nek5000/core/experimental/portion_post.f'
+      include "/home/nsaini/Nek5000/core/experimental/limits.f"
+      include "/home/nsaini/Nek5000/core/experimental/utilities.f"
+      include "/home/nsaini/Nek5000/core/experimental/lineplot.f"      
+      include'/home/nsaini/Nek5000/core/experimental/portion_post.f'
 c---------------------------------------------------------------------
       subroutine useric (ix,iy,iz,ieg)
       include 'SIZE'
@@ -54,10 +54,16 @@ c-----------------------------------------------------------------------
       real wd
       common /walldist/ wd(lx1,ly1,lz1,lelv)
       
+      real d,m1
+      common /myoutflow/ d(lx1*ly1*lz1*lelt),m1(lx1*ly1*lz1*lelt)
+
+      real rq(1),ui(1),ddmax(1)
+      save rq,ui,ddmax
+   
       real nrsdt(1)
       save nrsdt
 
-      common /NRSSCPTR/ nrs_scptr(10)
+      common /NRSSCPTR/ nrs_scptr(15)
       integer*8 nrs_scptr
 
       real uin,vin,win,tin
@@ -89,7 +95,19 @@ c     Fix needed for a lack of a pointer to dt from nekRS
       nrs_scptr(5) = loc(t1in(1))
       nrs_scptr(6) = loc(t2in(1))
       nrs_scptr(7) = loc(t3in(1))
-            
+         
+   
+      if(istep.eq.0)then
+         rq(1) = 4.0
+         ui(1) = 0.
+         call myturb_outflow(d,m1,rq,ui,ddmax) !populate d,m1
+      endif
+      nrs_scptr(8) = loc(d(1))
+      nrs_scptr(9) = loc(m1(1))
+      nrs_scptr(10) = loc(rq(1))
+      nrs_scptr(11) = loc(ui(1))
+      nrs_scptr(12) = loc(ddmax(1))
+      
 
       if(istep.eq.0)then
 c     Fix for vtrans and vdiff not being populated
@@ -168,10 +186,10 @@ c-----------------------------------------------------------------------
              cbc(ifc,iel,3) = 't  '
              cbc(ifc,iel,4) = 't  '
          elseif (id_face.eq.2) then     ! outlet 
-             cbc(ifc,iel,1) = 'o  '
-             cbc(ifc,iel,2) = 'o  '
-             cbc(ifc,iel,3) = 'o  '
-             cbc(ifc,iel,4) = 'o  '
+             cbc(ifc,iel,1) = 'O  '
+             cbc(ifc,iel,2) = 'O  '
+             cbc(ifc,iel,3) = 'O  '
+             cbc(ifc,iel,4) = 'O  '
          elseif (id_face.eq.3) then     ! wall 
              cbc(ifc,iel,1) = 'W  '
              cbc(ifc,iel,2) = 't  '
@@ -182,15 +200,15 @@ c-----------------------------------------------------------------------
           boundaryIDt(ifc,iel) = 0
           
           if(cbc(ifc,iel,3).eq.'t  ')then
-             if(cbc(ifc,iel,1).eq.'v') boundaryIDt(ifc,iel)=1
-             if(cbc(ifc,iel,1).eq.'W') boundaryIDt(ifc,iel)=2
-          elseif(cbc(ifc,iel,3).eq.'o  ')then
+             if(cbc(ifc,iel,1).eq.'v  ') boundaryIDt(ifc,iel)=1
+             if(cbc(ifc,iel,1).eq.'W  ') boundaryIDt(ifc,iel)=2
+          elseif(cbc(ifc,iel,3).eq.'O  ')then
              boundaryIDt(ifc,iel)=3
           endif
           
-          if(cbc(ifc,iel,1).eq.'v ')boundaryID(ifc,iel)=1
-          if(cbc(ifc,iel,1).eq.'W ')boundaryID(ifc,iel)=2
-          if(cbc(ifc,iel,1).eq.'o ')boundaryID(ifc,iel)=3
+          if(cbc(ifc,iel,1).eq.'v  ')boundaryID(ifc,iel)=1
+          if(cbc(ifc,iel,1).eq.'W  ')boundaryID(ifc,iel)=2
+          if(cbc(ifc,iel,1).eq.'O  ')boundaryID(ifc,iel)=3
        enddo
       enddo
 
@@ -289,4 +307,101 @@ c---------------------------------------------------------------------
      $     p(5)*x**5.+p(6)*x**4.+p(7)*x**3.+p(8)*x**2.+p(9)*x+p(10)
 
       end function
+c---------------------------------------------------------------------
+      subroutine myturb_outflow(d,m1,rq,uin,ddmax)
+
+c     . Set div U > 0 in elements with 'O  ' bc.
+c
+c     . rq is nominally the ratio of Qout/Qin and is typically 1.5
+c
+c     . uin is normally zero, unless your flow is zero everywhere 
+c
+c     . d and m1 are work arrays of size (lx1,ly1,lz1,lelt), assumed persistant
+c
+c     This routine may or may not work with multiple outlets --- it has
+c     not been tested for this case.
+c
+c
+c     TYPICAL USAGE -- ADD THESE LINES TO userchk() in your .usr file:
+c                      (uncommented)
+c
+c     common /myoutflow/ d(lx1,ly1,lz1,lelt),m1(lx1*ly1*lz1,lelt)
+c     real m1
+c     rq  = 2.
+c     uin = 0.
+c     call turb_outflow(d,m1,rq,uin)
+c
+
+      include 'SIZE'
+      include 'TOTAL'
+
+      real d(lx2,ly2,lz2,lelt),m1(lx1*ly1*lz1,lelt)
+
+      parameter (lw = 3*lx1*ly1*lz1)
+      common /ctmp1/ w(lw)
+
+      integer icalld,noutf,e,f
+      save    icalld,noutf
+      data    icalld,noutf /0,0/
+
+      real cso
+      save cso
+      logical ifout
+
+      character*3 b
+
+      n     = lx1*ly1*lz1*nelv
+      n2    = lx2*ly2*lz2*nelv
+      nxyz  = lx1*ly1*lz1
+      nxyz2 = lx2*ly2*lz2
+
+      if (icalld.eq.0) then
+         icalld = 1
+
+         b = 'O  '
+         call cheap_dist(m1,1,b)
+
+         call rzero (d,n2)
+
+         ddmax = 0.
+         noutf = 0
+
+         do e=1,nelv
+           ifout = .false.
+           do f=1,2*ldim
+             if (cbc(f,e,1).eq.b) ifout = .true. ! outflow
+             if (cbc(f,e,1).eq.b) noutf = noutf+1
+           enddo
+           if (ifout) then
+            if (lx2.lt.lx1) then ! Map distance function to Gauss
+             call maph1_to_l2(d(1,1,1,e),lx2,m1(1,e),lx1,if3d,w,lw)
+            else
+             call copy(d(1,1,1,e),m1(1,e),nxyz)
+            endif
+            dmax  = vlmax(m1(1,e),nxyz)
+            ddmax = max(ddmax,dmax)
+            call rzero(m1(1,e),nxyz) ! mask points at outflow
+           else
+             call rone (m1(1,e),nxyz)
+           endif
+         enddo
+
+         ddmax = glamax(ddmax,1)
+
+         do e=1,nelv
+           ifout = .false.
+           do f=1,2*ldim
+             if (cbc(f,e,1).eq.b) ifout = .true. ! outflow
+           enddo
+           if (ifout) then
+              do i=1,nxyz2
+                d(i,1,1,e) = (ddmax - d(i,1,1,e))/ddmax
+              enddo
+           endif
+         enddo
+         noutf = iglsum(noutf,1)
+      endif
+
+      return
+      end
 c---------------------------------------------------------------------
