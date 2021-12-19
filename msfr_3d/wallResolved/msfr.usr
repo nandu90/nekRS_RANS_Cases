@@ -9,10 +9,10 @@ C     - forcing function for passive scalar (q)
 C     - general purpose routine for checking errors etc.        
 C
 c-----------------------------------------------------------------------
-      include "/home/nsaini/Nek5000/core/experimental/limits.f"
-      include "/home/nsaini/Nek5000/core/experimental/utilities.f"
-      include "/home/nsaini/Nek5000/core/experimental/lineplot.f"      
-      include "/home/nsaini/Nek5000/core/experimental/portion_post.f"
+      include "/ccs/home/nsaini/Nek5000/core/experimental/limits.f"
+      include "/ccs/home/nsaini/Nek5000/core/experimental/utilities.f"
+      include "/ccs/home/nsaini/Nek5000/core/experimental/lineplot.f"      
+      include'/ccs/home/nsaini/Nek5000/core/experimental/portion_post.f'
 c---------------------------------------------------------------------
       subroutine useric (ix,iy,iz,ieg)
       include 'SIZE'
@@ -117,7 +117,21 @@ c     Needed for y_p_limits
             write(6,*)
          endif
       endif
-                  
+
+c$$$      if(istep.eq.0)then
+c$$$         call izero(elist,nelv)
+c$$$         
+c$$$         do ie=1,nelv
+c$$$            xmax = vlmax(xm1(1,1,1,ie),ntot)
+c$$$            zmax = vlmax(zm1(1,1,1,ie),ntot)
+c$$$            if(zmax.gt.0. .and. xmax.gt.0.)elist(ie) = 1
+c$$$         enddo
+c$$$      endif
+c$$$
+c$$$      if(istep.gt.0)then
+c$$$         call my_outpost(elist,vx,vy,vz,pr,t,'part')
+c$$$      endif
+      
       return
       end
 c-----------------------------------------------------------------------
@@ -154,10 +168,10 @@ c-----------------------------------------------------------------------
              cbc(ifc,iel,3) = 't  '
              cbc(ifc,iel,4) = 't  '
          elseif (id_face.eq.2) then     ! outlet 
-             cbc(ifc,iel,1) = 'O  '
-             cbc(ifc,iel,2) = 'O  '
-             cbc(ifc,iel,3) = 'O  '
-             cbc(ifc,iel,4) = 'O  '
+             cbc(ifc,iel,1) = 'o  '
+             cbc(ifc,iel,2) = 'o  '
+             cbc(ifc,iel,3) = 'o  '
+             cbc(ifc,iel,4) = 'o  '
          elseif (id_face.eq.3) then     ! wall 
              cbc(ifc,iel,1) = 'W  '
              cbc(ifc,iel,2) = 't  '
@@ -170,13 +184,13 @@ c-----------------------------------------------------------------------
           if(cbc(ifc,iel,3).eq.'t  ')then
              if(cbc(ifc,iel,1).eq.'v') boundaryIDt(ifc,iel)=1
              if(cbc(ifc,iel,1).eq.'W') boundaryIDt(ifc,iel)=2
-          elseif(cbc(ifc,iel,3).eq.'O  ')then
+          elseif(cbc(ifc,iel,3).eq.'o  ')then
              boundaryIDt(ifc,iel)=3
           endif
           
           if(cbc(ifc,iel,1).eq.'v ')boundaryID(ifc,iel)=1
           if(cbc(ifc,iel,1).eq.'W ')boundaryID(ifc,iel)=2
-          if(cbc(ifc,iel,1).eq.'O ')boundaryID(ifc,iel)=3
+          if(cbc(ifc,iel,1).eq.'o ')boundaryID(ifc,iel)=3
        enddo
       enddo
 
