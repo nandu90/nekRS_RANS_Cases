@@ -1,0 +1,42 @@
+#Nek5000 parameter file
+[GENERAL]
+startFrom = msfr.old
+stopAt = numSteps
+numSteps = 100000 #200000 #200000
+dt = 40.00e-5
+writeInterval = 2000
+timeStepper = BDF2
+targetCFL = 0.75
+
+[PROBLEMTYPE]
+equation = incompNS
+#axiSymmetry = yes
+stressFormulation = yes
+variableProperties = yes
+
+[MESH]
+writeToFieldFile = yes
+
+[VELOCITY]
+density = 1.0
+viscosity = -19047.6
+residualTol = 1e-8
+residualPROJ = yes
+
+[PRESSURE]
+preconditioner = semg_amg
+residualTol = 1e-6
+residualPROJ = yes
+
+[TEMPERATURE]
+solver = none
+
+[SCALAR01] 
+density = 1.0
+diffusivity = -19047.6
+residualTol = 1e-8
+
+[SCALAR02] 
+density = 1.0
+diffusivity = -19047.6
+residualTol = 1e-8

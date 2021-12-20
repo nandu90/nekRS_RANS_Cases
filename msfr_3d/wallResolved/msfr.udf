@@ -11,6 +11,13 @@ static dfloat rho, mueLam;
 occa::kernel userfKernel; 
 static occa::kernel scalarScaledAddKernel;
 
+void qtl(nrs_t* nrs, dfloat time, occa::memory o_div)
+{
+  mesh_t* mesh = nrs->meshV;
+  dfloat *div = (double*) nek::scPtr(8);
+  o_div.copyFrom(div,mesh->Nlocal*sizeof(dfloat));
+}
+
 void userf(nrs_t *nrs, dfloat time, occa::memory o_U, occa::memory o_FU)
 {
   mesh_t* mesh = nrs->meshV;
@@ -88,16 +95,20 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
   mesh_t *mesh = nrs->meshV;
   cds_t *cds = nrs->cds;
 
-  if(nrs->isOutputStep){
-    nek::ocopyToNek(time, tstep);
+  nek::ocopyToNek(time, tstep);
     
-    //pass istep to nek
-    *nekData.istep = tstep;
-
-    //pass dt to nek
-    double *ptrdt = (double*) nek::scPtr(1);
-    *ptrdt = nrs->dt[0];
-    
-    nek::userchk();
-  }
+  //pass istep to nek
+  *nekData.istep = tstep;
+  
+  //pass dt to nek
+  double *ptrdt = (double*) nek::scPtr(1);
+  *ptrdt = nrs->dt[0];
+  
+  double *bd = (double*) nek::scPtr(9);
+  *bd = nrs->coeffBDF[0];
+  
+  bool *isout = (bool*) nek::scPtr(10);
+  *isout = nrs->isOutputStep;
+  
+  nek::userchk();
 }

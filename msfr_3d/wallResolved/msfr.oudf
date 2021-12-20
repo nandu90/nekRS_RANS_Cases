@@ -49,11 +49,3 @@ void velocityDirichletConditions(bcData *bc)
   bc->v = bc->wrk[bc->idM + 1*bc->fieldOffset];
   bc->w = bc->wrk[bc->idM + 2*bc->fieldOffset];
 }
-
-void pressureDirichletConditions(bcData *bc)
-{
-  const dfloat iU0delta = 1;
-  const dfloat un = bc->u*bc->nx + bc->v*bc->ny + bc->w*bc->nz;
-  const dfloat s0 = 0.5 * (1.0 - tanh(un*iU0delta));
-  bc->p = -0.5 * (bc->u*bc->u + bc->v*bc->v + bc->w*bc->w) * s0;
-}

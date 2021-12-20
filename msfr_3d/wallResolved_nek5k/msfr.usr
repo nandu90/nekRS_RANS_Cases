@@ -9,10 +9,130 @@ C     - forcing function for passive scalar (q)
 C     - general purpose routine for checking errors etc.        
 C
 c-----------------------------------------------------------------------
+#include "experimental/rans_komg.f"
       include "/home/nsaini/Nek5000/core/experimental/limits.f"
       include "/home/nsaini/Nek5000/core/experimental/utilities.f"
       include "/home/nsaini/Nek5000/core/experimental/lineplot.f"      
       include'/home/nsaini/Nek5000/core/experimental/portion_post.f'
+c---------------------------------------------------------------------
+      subroutine uservp(ix,iy,iz,eg) ! set variable properties
+c      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      include 'RANS_KOMG'
+
+      integer ix,iy,iz,eg,e
+      real rans_mut,rans_mutsk,rans_mutso,rans_turbPrandtl
+      e = gllel(eg)
+
+      Pr_t=coeffs(1)
+      mu_t=rans_mut(ix,iy,iz,e)
+
+      utrans = cpfld(ifield,2)
+      if(ifield.eq.1) then
+        udiff = cpfld(ifield,1)+mu_t
+      elseif(ifield.eq.2) then !temperature
+        udiff = cpfld(ifield,1)+mu_t*cpfld(ifield,2)/(Pr_t*cpfld(1,2))
+      elseif(ifield.eq.3) then !tke
+        udiff = cpfld(1,1)+rans_mutsk(ix,iy,iz,e)
+      elseif(ifield.eq.4) then !tau
+        udiff = cpfld(1,1)+rans_mutso(ix,iy,iz,e)
+      endif
+
+      return
+      end
+c---------------------------------------------------------------------
+      subroutine userf(ix,iy,iz,eg) ! set acceleration term
+c
+c     Note: this is an acceleration term, NOT a force!
+c     Thus, ffx will subsequently be multiplied by rho(x,t).
+c
+c      implicit none
+
+      integer ix,iy,iz,eg
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer e
+c     e = gllel(eg)
+
+      ffx = 0.0
+      ffy = 0.0
+      ffz = 0.0
+
+      return
+      end
+c---------------------------------------------------------------------
+      subroutine userq(ix,iy,iz,eg) ! set source term
+
+c      implicit none
+
+      integer ix,iy,iz,eg
+
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer e
+      e = gllel(eg)
+
+      qvol   = 0.0
+      avol   = 0.0
+      if(ifield.eq.3) then
+        qvol = rans_kSrc(ix,iy,iz,e)
+        avol = rans_kDiag(ix,iy,iz,e)
+      elseif(ifield.eq.4) then
+        qvol = rans_omgSrc(ix,iy,iz,e)
+        avol = rans_omgDiag(ix,iy,iz,e)
+      endif
+
+      return
+      end
+c---------------------------------------------------------------------
+      subroutine userbc(ix,iy,iz,iside,eg) ! set up boundary conditions
+c      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+c
+      real wd
+      common /walldist/ wd(lx1,ly1,lz1,lelv)
+
+      integer ix,iy,iz,iside,e,eg
+      real tke_tmp,tau_tmp
+      
+      real uin,vin,win,t1in,t2in,t3in
+      common /inarrs/ 
+     $     uin(lx1,ly1,lz1,lelv),
+     $     vin(lx1,ly1,lz1,lelv),
+     $     win(lx1,ly1,lz1,lelv),
+     $     t1in(lx1,ly1,lz1,lelv),
+     $     t2in(lx1,ly1,lz1,lelv),
+     $     t3in(lx1,ly1,lz1,lelv)
+
+      e = gllel(eg)
+
+      ux   = uin(ix,iy,iz,e)
+      uy   = vin(ix,iy,iz,e)
+      uz   = win(ix,iy,iz,e)
+            
+      if(cbc(iside,e,1).eq.'W  ')then
+         temp = 0.0
+      elseif(cbc(iside,e,1).eq.'v  ')then
+         if(ifield.eq.3)then
+            temp = t2in(ix,iy,iz,e)
+         elseif(ifield.eq.4)then
+            temp = t3in(ix,iy,iz,e)
+         elseif(ifield.eq.2)then
+            temp = t1in(ix,iy,iz,e)
+         endif
+      endif
+
+      return
+      end
 c---------------------------------------------------------------------
       subroutine useric (ix,iy,iz,ieg)
       include 'SIZE'
@@ -57,69 +177,23 @@ c-----------------------------------------------------------------------
       common /myoutflow/ d(lx1,ly1,lz1,lelt),m1(lx1*ly1*lz1,lelt)
       real m1,d
 
-      real nrsdt(1),bd1(1)
-      save nrsdt,bd1
-
-      logical ifoutstep(1)
-      save ifoutstep
-
-      common /NRSSCPTR/ nrs_scptr(10)
-      integer*8 nrs_scptr
-
-      real uin,vin,win,tin
-      common /inarrs/ 
-     $     uin(lx1*ly1*lz1*lelv),
-     $     vin(lx1*ly1*lz1*lelv),
-     $     win(lx1*ly1*lz1*lelv),
-     $     t1in(lx1*ly1*lz1*lelv),
-     $     t2in(lx1*ly1*lz1*lelv),
-     $     t3in(lx1*ly1*lz1*lelv)
-     
       real norm(3),pt(3),eps
 
       nxyz = lx1*ly1*lz1
       ntot = nxyz*nelv
       ntott = ntot*ldimt
 
-c     Fix needed for a lack of a pointer to dt from nekRS
-      nrs_scptr(1) = loc(nrsdt(1))
-      dt = nrsdt(1)
-
       if(istep.eq.0)then
-         call distf(wd,1,'W  ',w1,w2,w3,w4,w5)
          call inletprofiles         
       endif
-      nrs_scptr(2) = loc(uin(1))
-      nrs_scptr(3) = loc(vin(1))
-      nrs_scptr(4) = loc(win(1))
-      nrs_scptr(5) = loc(t1in(1))
-      nrs_scptr(6) = loc(t2in(1))
-      nrs_scptr(7) = loc(t3in(1))
-            
+      
 c     Outflow
       rq = 4.0
       ui = 0.0
-      nrs_scptr(9) = loc(bd1(1))
-      bd(1) = bd1(1)
-      call rzero(usrdiv,ntot)
       call turb_outflow(d,m1,rq,ui)
-      nrs_scptr(8) = loc(usrdiv(1,1,1,1))
+            
       
-c     For printing y^+
-      if(istep.eq.0)then
-c     Fix for vtrans and vdiff not being populated
-c     Needed for y_p_limits
-         Re=1./param(2)
-         visc = 1./Re
-         rho = 1.0
-         call rone(vtrans(1,1,1,1,1),ntot)
-         call rone(vdiff(1,1,1,1,1),ntot)
-         call cmult(vdiff(1,1,1,1,1),visc,ntot)
-      endif
-      
-      nrs_scptr(10) = loc(ifoutstep(1))
-      
-      if(ifoutstep(1))then
+      if(mod(istep,100).eq.0)then
          call print_limits
          call y_p_limits(wd,.true.)
          norm(1) = 0.0
@@ -135,24 +209,17 @@ c     Needed for y_p_limits
             write(6,*)
          endif
       endif
-
-c$$$      if(istep.eq.0)then
-c$$$         call izero(elist,nelv)
-c$$$         
-c$$$         do ie=1,nelv
-c$$$            xmax = vlmax(xm1(1,1,1,ie),ntot)
-c$$$            zmax = vlmax(zm1(1,1,1,ie),ntot)
-c$$$            if(zmax.gt.0. .and. xmax.gt.0.)elist(ie) = 1
-c$$$         enddo
-c$$$      endif
-c$$$
-c$$$      if(istep.gt.0)then
-c$$$         call my_outpost(elist,vx,vy,vz,pr,t,'part')
-c$$$      endif
       
       return
       end
 c-----------------------------------------------------------------------
+      subroutine userqtl        ! Set thermal divergence
+
+      call userqtl_scig 
+
+      return
+      end
+c---------------------------------------------------------------------
       subroutine usrdat   ! This routine to modify element vertices
       include 'SIZE'      ! _before_ mesh is generated, which 
       include 'TOTAL'     ! guarantees GLL mapping of mesh.
@@ -163,17 +230,6 @@ c-----------------------------------------------------------------------
       subroutine usrdat2()  ! This routine to modify mesh coordinates
       include 'SIZE'
       include 'TOTAL'
-
-      real wd
-      common /walldist/ wd(lx1,ly1,lz1,lelv)
-
-      real w1,w2,w3,w4,w5
-      common /SCRNS/
-     $     w1(lx1,ly1,lz1,lelv),
-     $     w2(lx1,ly1,lz1,lelv),
-     $     w3(lx1,ly1,lz1,lelv),
-     $     w4(lx1,ly1,lz1,lelv),
-     $     w5(lx1,ly1,lz1,lelv)
 
       n=nx1*ny1*nz1*nelv
      
@@ -196,19 +252,6 @@ c-----------------------------------------------------------------------
              cbc(ifc,iel,3) = 't  '
              cbc(ifc,iel,4) = 't  '
           endif
-          boundaryID(ifc,iel) = 0
-          boundaryIDt(ifc,iel) = 0
-          
-          if(cbc(ifc,iel,3).eq.'t  ')then
-             if(cbc(ifc,iel,1).eq.'v  ') boundaryIDt(ifc,iel)=1
-             if(cbc(ifc,iel,1).eq.'W  ') boundaryIDt(ifc,iel)=2
-          elseif(cbc(ifc,iel,3).eq.'O  ')then
-             boundaryIDt(ifc,iel)=3
-          endif
-          
-          if(cbc(ifc,iel,1).eq.'v  ')boundaryID(ifc,iel)=1
-          if(cbc(ifc,iel,1).eq.'W  ')boundaryID(ifc,iel)=2
-          if(cbc(ifc,iel,1).eq.'O  ')boundaryID(ifc,iel)=3
        enddo
       enddo
 
@@ -218,6 +261,33 @@ c-----------------------------------------------------------------------
       subroutine usrdat3
       include 'SIZE'
       include 'TOTAL'
+
+      real wd(lx1,ly1,lz1,lelv)
+      common /walldist/ wd
+
+      logical ifcoefs
+
+C     initialize the RANS model
+      ifld_k = 3 !address of tke
+      ifld_t = 4 !address of tau
+      ifcoefs = .false.
+
+C     Supported models:
+c     id_m = 0 !regularized high-Re k-omega (no wall functions)
+c     id_m = 1 !regularized low-Re k-omega
+c     id_m = 2 !regularized high-Re k-omega SST (no wall functions)
+c     id_m = 3 !regularized low-Re k-omega SST
+      id_m = 4 !standard k-tau
+
+C     Wall distance function:
+c     id_w = 0 ! user specified
+c     id_w = 1 ! cheap_dist (path to wall, may work better for periodic boundaries)
+      id_w = 2 ! distf (coordinate difference, provides smoother function)
+
+      call rans_init(ifld_k,ifld_t,ifcoefs,coefs,id_w,wd,id_m)
+
+c      ifflow = .false.
+c      ifheat = .false.
 
       return
       end
@@ -241,14 +311,14 @@ c
       save icalld
       data icalld /0/
 
-      real uin,vin,win,tin
+      real uin,vin,win,t1in,t2in,t3in
       common /inarrs/ 
-     $     uin(lx1*ly1*lz1*lelv),
-     $     vin(lx1*ly1*lz1*lelv),
-     $     win(lx1*ly1*lz1*lelv),
-     $     t1in(lx1*ly1*lz1*lelv),
-     $     t2in(lx1*ly1*lz1*lelv),
-     $     t3in(lx1*ly1*lz1*lelv)
+     $     uin(lx1,ly1,lz1,lelv),
+     $     vin(lx1,ly1,lz1,lelv),
+     $     win(lx1,ly1,lz1,lelv),
+     $     t1in(lx1,ly1,lz1,lelv),
+     $     t2in(lx1,ly1,lz1,lelv),
+     $     t3in(lx1,ly1,lz1,lelv)
 
       nxyz = lx1*ly1*lz1
       ntot = nxyz*nelt
@@ -275,10 +345,10 @@ c
          do i=1,ntot
             walld = wd(i,1,1,1)
             
-            uin(i) = 0.0
-            vin(i) = polyval(ufit,walld)
-            vin(i) = min(vin(i),0.0)
-            win(i) = 0.0
+            uin(i,1,1,1) = 0.0
+            vin(i,1,1,1) = polyval(ufit,walld)
+            vin(i,1,1,1) = min(vin(i,1,1,1),0.0)
+            win(i,1,1,1) = 0.0
 
             if(walld.gt.0.02)then
                tke = polyval(kfit1,walld)
@@ -286,13 +356,13 @@ c
                tke = polyval(kfit2,walld)
             endif
             tke = max(tke,0.0)
-            t2in(i) = tke
+            t2in(i,1,1,1) = tke
             
             tau = polyval(taufit,walld)
             tau = max(tau,0.0)
-            t3in(i) = tau
+            t3in(i,1,1,1) = tau
 
-            t1in(i) = walld
+            t1in(i,1,1,1) = walld
          enddo
       endif
 

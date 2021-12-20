@@ -1,10 +1,10 @@
 [GENERAL]
 polynomialOrder = 3
 #cubaturePolynomialOrder = 9
-startFrom = msfr.old2
+startFrom = msfr.old
 stopAt = numSteps
-numSteps = 50000 #10000
-dt = 25.0e-5
+numSteps = 20000
+dt = 40.0e-5
 timeStepper = tombo2
 writeInterval = 1000
 
@@ -16,28 +16,28 @@ residualTol = 1e-06
 
 [VELOCITY]
 #solver = none
-boundaryTypeMap = v,W,o
+boundaryTypeMap = v,W,O
 residualTol = 1e-08
 density = 1.0
 viscosity = -19047.6
  
 [TEMPERATURE]
 solver = none
-boundaryTypeMap = t,t,o 
+boundaryTypeMap = t,t,O 
 residualTol = 1e-09
 rhoCp = 1.0
 conductivity = -19047.6 
 
 [SCALAR01] # k
 #solver = none	   
-boundaryTypeMap = t,t,o 
+boundaryTypeMap = t,t,O 
 residualTol = 1e-08
 rho = 1.0
 diffusivity = -19047.6 
 
 [SCALAR02] # tau
 #solver = none
-boundaryTypeMap = t,t,o
+boundaryTypeMap = t,t,O
 residualTol = 1e-08
 rho = 1.0
 diffusivity = -19047.6 
